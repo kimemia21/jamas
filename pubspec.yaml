@@ -36,6 +36,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   dio: ^5.8.0+1
   zcs_sdk_plugin: ^0.0.1
+  nfc_manager: ^4.0.2
 
 dev_dependencies:
   flutter_test:

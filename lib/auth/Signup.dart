@@ -23,6 +23,8 @@ class _RegistrationPageState extends State<RegistrationPage>
   final _kraPinController = TextEditingController();
   final _referralController = TextEditingController();
   final _otpController = TextEditingController();
+  final _passWordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
 
   // Form states
   bool _isLoading = false;
@@ -30,6 +32,7 @@ class _RegistrationPageState extends State<RegistrationPage>
   bool _otpSent = false;
   String _otpMethod = 'phone';
   int _otpCountdown = 60;
+  bool showpassword = false;
 
   @override
   void initState() {
@@ -44,10 +47,9 @@ class _RegistrationPageState extends State<RegistrationPage>
     _slideAnimation = Tween<Offset>(
       begin: const Offset(0, 0.3),
       end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOutCubic,
-    ));
+    ).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
+    );
     _animationController.forward();
   }
 
@@ -56,6 +58,8 @@ class _RegistrationPageState extends State<RegistrationPage>
     _animationController.dispose();
     _fullNameController.dispose();
     _emailController.dispose();
+    _confirmPasswordController.dispose();
+    _passWordController.dispose();
     _phoneController.dispose();
     _kraPinController.dispose();
     _referralController.dispose();
@@ -78,11 +82,7 @@ class _RegistrationPageState extends State<RegistrationPage>
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF0D4F37),
-              Color(0xFF1B5E20),
-              Color(0xFF2E7D32),
-            ],
+            colors: [Color(0xFF0D4F37), Color(0xFF1B5E20), Color(0xFF2E7D32)],
           ),
         ),
         child: SafeArea(
@@ -124,18 +124,14 @@ class _RegistrationPageState extends State<RegistrationPage>
               ),
             ],
           ),
-          child:Image.asset(
-            'assets/images/jamas.jpeg',
-            fit: BoxFit.cover,
-          ),
-          
-    
+          child: Image.asset('assets/images/jamas.jpeg', fit: BoxFit.cover),
         ),
         const SizedBox(height: 24),
         ShaderMask(
-          shaderCallback: (bounds) => const LinearGradient(
-            colors: [premiumGold, Colors.white],
-          ).createShader(bounds),
+          shaderCallback:
+              (bounds) => const LinearGradient(
+                colors: [premiumGold, Colors.white],
+              ).createShader(bounds),
           child: const Text(
             'JaMas Recyclers',
             style: TextStyle(
@@ -200,7 +196,8 @@ class _RegistrationPageState extends State<RegistrationPage>
               icon: Icons.person_outline,
               validator: (value) {
                 if (value?.isEmpty ?? true) return 'Full name is required';
-                if (value!.length < 2) return 'Name must be at least 2 characters';
+                if (value!.length < 2)
+                  return 'Name must be at least 2 characters';
                 return null;
               },
             ),
@@ -212,7 +209,9 @@ class _RegistrationPageState extends State<RegistrationPage>
               keyboardType: TextInputType.emailAddress,
               validator: (value) {
                 if (value?.isEmpty ?? true) return 'Email is required';
-                if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value!)) {
+                if (!RegExp(
+                  r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                ).hasMatch(value!)) {
                   return 'Enter a valid email address';
                 }
                 return null;
@@ -231,13 +230,27 @@ class _RegistrationPageState extends State<RegistrationPage>
               ],
               validator: (value) {
                 if (value?.isEmpty ?? true) return 'Phone number is required';
-                if (value!.length != 9) return 'Enter a valid Kenyan phone number';
+                if (value!.length != 9)
+                  return 'Enter a valid Kenyan phone number';
                 if (!RegExp(r'^[17]').hasMatch(value)) {
                   return 'Phone number must start with 7 or 1';
                 }
                 return null;
               },
             ),
+            _buildTextField(controller:_passWordController, label: "Enter Password", icon: Icons.lock ,validator: (value){
+              if (value?.isEmpty ?? true) return 'password is required';
+              return null;
+            },
+            
+            isSecured: showpassword),
+                 _buildTextField(controller:_confirmPasswordController, label: "Confirm Password", icon: Icons.lock ,validator: (value){
+              if (value?.isEmpty ?? true) return 'Confirm password is required';
+                 if (value!=_passWordController.text ) return 'Passwords are not matching';
+              return null;
+            },
+            
+            isSecured: showpassword),
             const SizedBox(height: 20),
             _buildTextField(
               controller: _kraPinController,
@@ -285,6 +298,7 @@ class _RegistrationPageState extends State<RegistrationPage>
 
   Widget _buildTextField({
     required TextEditingController controller,
+
     required String label,
     required IconData icon,
     String? Function(String?)? validator,
@@ -293,6 +307,8 @@ class _RegistrationPageState extends State<RegistrationPage>
     TextCapitalization? textCapitalization,
     String? prefixText,
     bool required = true,
+    bool isSecured =false,
+
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -308,20 +324,28 @@ class _RegistrationPageState extends State<RegistrationPage>
               ),
             ),
             if (required)
-              const Text(
-                ' *',
-                style: TextStyle(color: kenyaRed, fontSize: 16),
-              ),
+              const Text(' *', style: TextStyle(color: kenyaRed, fontSize: 16)),
           ],
         ),
         const SizedBox(height: 8),
         TextFormField(
+          obscureText: isSecured,
+
           controller: controller,
           validator: validator,
           keyboardType: keyboardType,
           inputFormatters: inputFormatters,
           textCapitalization: textCapitalization ?? TextCapitalization.words,
-          decoration: InputDecoration(
+          decoration: InputDecoration
+          (
+            suffix: isSecured
+                ? IconButton(
+                    icon: Icon(showpassword ? Icons.visibility : Icons.visibility_off),
+                    onPressed: () =>setState(() {
+                      showpassword=!showpassword;
+                    }),
+                  )
+                : null,
             prefixIcon: Icon(icon, color: kenyaGreen),
             prefixText: prefixText,
             prefixStyle: const TextStyle(
@@ -386,29 +410,18 @@ class _RegistrationPageState extends State<RegistrationPage>
             _otpSent
                 ? 'Enter the OTP sent to your ${_otpMethod == 'phone' ? 'phone' : 'email'}'
                 : 'Choose verification method:',
-            style: TextStyle(
-              color: Colors.grey.shade600,
-              fontSize: 14,
-            ),
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
           ),
           if (!_otpSent) ...[
             const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
-                  child: _buildOtpMethodButton(
-                    'Phone',
-                    Icons.phone,
-                    'phone',
-                  ),
+                  child: _buildOtpMethodButton('Phone', Icons.phone, 'phone'),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: _buildOtpMethodButton(
-                    'Email',
-                    Icons.email,
-                    'email',
-                  ),
+                  child: _buildOtpMethodButton('Email', Icons.email, 'email'),
                 ),
               ],
             ),
@@ -503,24 +516,25 @@ class _RegistrationPageState extends State<RegistrationPage>
               ),
               elevation: 4,
             ),
-            child: _isLoading
-                ? const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            child:
+                _isLoading
+                    ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                    : Text(
+                      _showOtpField
+                          ? (_otpSent ? 'Verify & Register' : 'Send OTP')
+                          : 'Continue',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  )
-                : Text(
-                    _showOtpField
-                        ? (_otpSent ? 'Verify & Register' : 'Send OTP')
-                        : 'Continue',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
           ),
         ),
       ],
@@ -533,10 +547,7 @@ class _RegistrationPageState extends State<RegistrationPage>
       children: [
         Text(
           'Already have an account? ',
-          style: TextStyle(
-            color: Colors.grey.shade600,
-            fontSize: 14,
-          ),
+          style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
         ),
         GestureDetector(
           onTap: () => Navigator.pop(context),
@@ -554,7 +565,7 @@ class _RegistrationPageState extends State<RegistrationPage>
   }
 
   void _handleSubmit() async {
-    // if (!_formKey.currentState!.validate()) return;
+     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
 
@@ -582,23 +593,27 @@ class _RegistrationPageState extends State<RegistrationPage>
   Future<void> _sendOtp() async {
     // Simulate API call
     await Future.delayed(const Duration(seconds: 2));
-    
+
     setState(() {
       _otpSent = true;
       _otpCountdown = 60;
     });
-    
+
     _startCountdown();
-    _showSuccessSnackBar('OTP sent to your ${_otpMethod == 'phone' ? 'phone' : 'email'}');
+    _showSuccessSnackBar(
+      'OTP sent to your ${_otpMethod == 'phone' ? 'phone' : 'email'}',
+    );
   }
 
   Future<void> _verifyOtpAndRegister() async {
     // Simulate API call
     await Future.delayed(const Duration(seconds: 2));
-    
+
     // For demo purposes, accept any 6-digit OTP
     if (_otpController.text.length == 6) {
-      _showSuccessSnackBar('Registration successful! Welcome to JaMas Recyclers.');
+      _showSuccessSnackBar(
+        'Registration successful! Welcome to JaMas Recyclers.',
+      );
       // Navigate to home or login page
       Navigator.pushReplacement(
         context,

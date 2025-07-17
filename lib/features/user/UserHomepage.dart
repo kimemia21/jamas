@@ -1,6 +1,9 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:jamas/auth/Signup.dart';
+import 'package:jamas/core/initializer.dart';
 
 // Data Models
 class User {
@@ -941,18 +944,217 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildFloatingActionButton() {
-    return FloatingActionButton(
-      backgroundColor: kenyaGreen,
-      child: const Icon(Icons.qr_code_scanner),
-      onPressed: () {
-        // You can replace this with your own QR scanner integration
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('QR Scanner not implemented')),
+
+
+// Updated FloatingActionButton
+Widget _buildFloatingActionButton() {
+  return FloatingActionButton(
+    backgroundColor: kenyaGreen,
+    child: const Icon(Icons.add, color: Colors.white),
+    onPressed: () {
+      showDepositDialog(context);
+    },
+  );
+}
+void showDepositDialog(BuildContext context) {
+  final TextEditingController phoneController = TextEditingController();
+  final TextEditingController amountController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+
+  showDialog(
+    context: context,
+    barrierDismissible :false,
+    builder: (BuildContext context) {
+      bool isLoading = false;
+
+      return BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
+            child: StatefulBuilder(
+          builder: (context, setState) {
+            Future<void> processDeposit() async {
+              if (!_formKey.currentState!.validate()) {
+                return;
+              }
+        
+              setState(() {
+                isLoading = true;
+              });
+        
+      try {
+        final random = DateTime.now().millisecondsSinceEpoch;
+        final randomString = 'jams$random';
+        final response = await comms.postRequest(
+          endpoint: "pods/pay",
+          data: {
+            "sessionId": randomString,
+            "payMethod": 1,
+            "mpesaNo": phoneController.text,
+            "cardName": "",
+          },
         );
-      },
-    );
-  }
+
+        if (response["rsp"]['success']) {
+          Navigator.of(context).pop();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Deposit of KES ${amountController.text} successful!'),
+              backgroundColor: _HomePageState.kenyaGreen,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Deposit failed: ${response['message']}"),
+              backgroundColor: _HomePageState.kenyaRed,
+            ),
+          );
+        }
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Deposit failed: ${e.toString()}"),
+            backgroundColor: _HomePageState.kenyaRed,
+          ),
+        );
+      } finally {
+        setState(() {
+          isLoading = false;
+        });
+      }
+            }
+        
+            return AlertDialog(
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: Row(
+                children: [
+                  Icon(Icons.account_balance_wallet, color: _HomePageState.kenyaGreen),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Deposit Money',
+                    style: TextStyle(
+                      color: _HomePageState.kenyaGreen,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                   width: MediaQuery.of(context).size.width*0.75,
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: TextFormField(
+                          controller: phoneController,
+                          keyboardType: TextInputType.phone,
+                          decoration: InputDecoration(
+                            labelText: 'Phone Number',
+                            // hintText: '0712345678',
+                            prefixIcon: Icon(Icons.phone, color: _HomePageState.kenyaGreen),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                            filled: true,
+                            fillColor: Colors.transparent,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please enter phone number';
+                            }
+                            if (value.length < 10) {
+                              return 'Please enter valid phone number';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: TextFormField(
+                          controller: amountController,
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            labelText: 'Amount',
+                            // hintText: '1000',
+                            prefixIcon: Icon(Icons.money, color: _HomePageState.kenyaGreen),
+                            prefixText: 'KES ',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                            filled: true,
+                            fillColor: Colors.transparent,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please enter amount';
+                            }
+                            final amount = double.tryParse(value);
+                            if (amount == null || amount <= 0) {
+                              return 'Please enter valid amount';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isLoading ? null : () => Navigator.of(context).pop(),
+                  child: Text(
+                    'Cancel',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: isLoading ? null : processDeposit,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _HomePageState.kenyaGreen,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  child: isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Text('Deposit'),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+    },
+  );
+}
 
   Future<void> _refreshData() async {
     setState(() {

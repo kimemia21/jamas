@@ -1,6 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:jamas/features/tout/TandG.dart';
 import 'package:zcs_sdk_plugin/zcs_sdk_plugin_platform_interface.dart';
+
+import 'package:nfc_manager/nfc_manager.dart';
+import 'package:nfc_manager/nfc_manager_android.dart';
+
+int reverseHexBytesToDecimal(String hexString) {
+  print("================$hexString=================");
+  // Ensure the string has an even number of characters
+  if (hexString.length % 2 != 0) {
+    throw FormatException('Invalid hex string length');
+  }
+
+  // Split into bytes (2 characters each)
+  List<String> bytes = [];
+  for (int i = 0; i < hexString.length; i += 2) {
+    bytes.add(hexString.substring(i, i + 2));
+  }
+
+  // Reverse the byte order
+  List<String> reversedBytes = bytes.reversed.toList();
+
+  // Join back into a hex string
+  String reversedHex = reversedBytes.join();
+
+  // Convert the reversed hex string to decimal
+  return int.parse(reversedHex, radix: 16);
+}
 
 // Data Models
 class Tout {
@@ -198,29 +225,154 @@ class _ToutHomePageState extends State<ToutHomePage> {
   // Dropdown selections
   String? _selectedFrom;
   String? _selectedTo;
+  String? cardUid;
+  bool isScanning = false;
+  bool isProcessingPayment = false;
 
   // Outdoor-optimized colors
   static const Color primaryBlue = Color(0xFF1976D2);
   static const Color darkBlue = Color(0xFF0D47A1);
   static const Color kenyaRed = Color(0xFFCE1126);
-  static const Color outdoorOrange = Color(0xFFFF6F00); // High contrast for outdoor visibility
+  static const Color outdoorOrange = Color(
+    0xFFFF6F00,
+  ); // High contrast for outdoor visibility
 
   @override
   void initState() {
     super.initState();
     _initializeData();
     _passengersController.addListener(_calculateFare);
-   
   }
 
-  void _initializeData() async{
+  Future<void> _startCardPayment() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_calculatedFare <= 0) {
+      _showSnackBar('Please select valid route', isError: true);
+      return;
+    }
+
+    setState(() {
+      isScanning = true;
+      cardUid = null;
+      isProcessingPayment = false;
+    });
+
+    try {
+      // Check if NFC is available
+      bool isAvailable = await NfcManager.instance.isAvailable();
+      if (!isAvailable) {
+        _showSnackBar('NFC is not available on this device', isError: true);
+        setState(() => isScanning = false);
+        return;
+      }
+
+      await NfcManager.instance.startSession(
+        pollingOptions: {NfcPollingOption.iso14443},
+        onDiscovered: (NfcTag tag) async {
+          await _handleCardDiscovered(tag);
+        },
+      );
+    } catch (e) {
+      setState(() => isScanning = false);
+      _showSnackBar('Failed to start NFC session: $e', isError: true);
+    }
+  }
+
+  Future<void> _handleCardDiscovered(NfcTag tag) async {
+    try {
+      setState(() => isScanning = false);
+
+      final MifareClassicAndroid? mifareClassic = MifareClassicAndroid.from(
+        tag,
+      );
+      if (mifareClassic != null) {
+        // Extract card UID
+        final List<int> uidBytes = mifareClassic.tag.id;
+        final String hexUid =
+            uidBytes
+                .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+                .join();
+
+        print("Raw UID bytes: $uidBytes");
+        print("Hex UID: $hexUid");
+
+        // Convert to decimal (reversed byte order)
+        final int decimalUid = reverseHexBytesToDecimal(hexUid);
+
+        setState(() {
+          cardUid = decimalUid.toString();
+          isProcessingPayment = true;
+        });
+
+        // Process payment after card is detected
+        await _processCardPayment();
+      } else {
+        _showSnackBar(
+          'Invalid card type detected. Please use a KAPS card.',
+          isError: true,
+        );
+      }
+    } catch (e) {
+      _showSnackBar('Error reading card: $e', isError: true);
+    } finally {
+      await NfcManager.instance.stopSession();
+    }
+  }
+
+  Future<void> _processCardPayment() async {
+    if (cardUid == null) return;
+
+    try {
+      // Prepare receipt data
+      final receiptData = _prepareReceiptData();
+
+      // Print receipt
+      await _plugin.printReceipt(receiptData);
+
+      setState(() => isProcessingPayment = false);
+
+      // Show success message
+      _showSnackBar('Payment successful! Receipt printed.', isError: false);
+
+      // Clear form after successful payment
+      _clearForm();
+    } catch (e) {
+      setState(() => isProcessingPayment = false);
+      _showSnackBar('Error processing card payment: $e', isError: true);
+    }
+  }
+
+  Map<String, dynamic> _prepareReceiptData() {
+    return {
+      "storeName": "Bus Service",
+      "receiptType": "Card Receipt",
+      "date": DateTime.now().toString().split(' ')[0],
+      "time": TimeOfDay.now().format(context),
+      "orderNumber": "TXN${DateTime.now().millisecondsSinceEpoch}",
+      "cardUid": cardUid,
+      "items": [
+        {
+          "name": "${_selectedFrom ?? ''} - ${_selectedTo ?? ''}",
+          "quantity": _passengersController.text,
+          "price": (_calculatedFare /
+                  (int.tryParse(_passengersController.text) ?? 1))
+              .toStringAsFixed(2),
+        },
+      ],
+      "subtotal": _calculatedFare.toStringAsFixed(2),
+      "tax": "0.00",
+      "total": _calculatedFare.toStringAsFixed(2),
+      "paymentMethod": "KAPS Card",
+    };
+  }
+
+  void _initializeData() async {
     _toutDataFuture = _apiService.fetchToutData();
     _faresFuture = _apiService.fetchRouteFares();
     _locationsFuture = _apiService.fetchAvailableLocations();
-    await   _plugin.initializeDevice();
+    await _plugin.initializeDevice();
 
-   await   _plugin.openDevice();
-  
+    await _plugin.openDevice();
   }
 
   void _calculateFare() {
@@ -247,7 +399,7 @@ class _ToutHomePageState extends State<ToutHomePage> {
     _passengersController.dispose();
     _phoneController.dispose();
     _plugin.closeDevice();
-     super.dispose();
+    super.dispose();
   }
 
   @override
@@ -268,7 +420,41 @@ class _ToutHomePageState extends State<ToutHomePage> {
               const SizedBox(height: 20),
               _buildPaymentSection(),
               const SizedBox(height: 30),
-              _buildProcessButton(),
+
+              Visibility(
+                visible: _selectedPaymentMethod != 'Card',
+                child: _buildProcessButton(),
+              ),
+              SizedBox(height: 20),
+          Center(
+  child: TextButton.icon(
+    onPressed: () {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => TapAndGoPage()),
+      );
+    },
+    icon: Icon(Icons.nfc, color: Colors.white),
+    label: Text(
+      "Tap and Go",
+      style: TextStyle(
+        color: Colors.white,
+        fontSize: 16,
+        fontWeight: FontWeight.bold,
+      ),
+    ),
+    style: TextButton.styleFrom(
+      backgroundColor: Colors.indigo, // Or use Theme.of(context).primaryColor
+      padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(30),
+      ),
+      elevation: 4,
+      shadowColor: Colors.black26,
+    ),
+  ),
+),
+
             ],
           ),
         ),
@@ -483,7 +669,10 @@ class _ToutHomePageState extends State<ToutHomePage> {
                               .map(
                                 (location) => DropdownMenuItem(
                                   value: location,
-                                  child: Text(location, style: const TextStyle(fontSize: 16)),
+                                  child: Text(
+                                    location,
+                                    style: const TextStyle(fontSize: 16),
+                                  ),
                                 ),
                               )
                               .toList(),
@@ -509,7 +698,11 @@ class _ToutHomePageState extends State<ToutHomePage> {
                         color: primaryBlue.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: const Icon(Icons.swap_horiz, color: primaryBlue, size: 24),
+                      child: const Icon(
+                        Icons.swap_horiz,
+                        color: primaryBlue,
+                        size: 24,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -528,7 +721,10 @@ class _ToutHomePageState extends State<ToutHomePage> {
                               .map(
                                 (location) => DropdownMenuItem(
                                   value: location,
-                                  child: Text(location, style: const TextStyle(fontSize: 16)),
+                                  child: Text(
+                                    location,
+                                    style: const TextStyle(fontSize: 16),
+                                  ),
                                 ),
                               )
                               .toList(),
@@ -712,9 +908,253 @@ class _ToutHomePageState extends State<ToutHomePage> {
     );
   }
 
+  Widget _buildProcessButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 60,
+      child: ElevatedButton(
+        onPressed: _isProcessingPayment ? null : _processBooking,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: primaryBlue,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        child:
+            _isProcessingPayment
+                ? const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    ),
+                    SizedBox(width: 12),
+                    Text(
+                      'Processing Payment...',
+                      style: TextStyle(fontSize: 16),
+                    ),
+                  ],
+                )
+                : const Text(
+                  'Process Payment',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+      ),
+    );
+  }
+
+  void _swapLocations() {
+    setState(() {
+      final temp = _selectedFrom;
+      _selectedFrom = _selectedTo;
+      _selectedTo = temp;
+    });
+    _calculateFare();
+  }
+
+  void _showCardPaymentDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (context) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Row(
+              children: [
+                Image.asset(
+                  'assets/images/kaps.png',
+                  width: 42,
+                  height: 27,
+                  errorBuilder:
+                      (_, __, ___) => const Icon(
+                        Icons.credit_card,
+                        color: outdoorOrange,
+                        size: 32,
+                      ),
+                ),
+                const SizedBox(width: 12),
+                const Text('KAPS Card Payment', style: TextStyle(fontSize: 18)),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: outdoorOrange.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        _getPaymentIcon(),
+                        size: 54,
+                        color: _getPaymentIconColor(),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _getPaymentStatusText(),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      if (_calculatedFare > 0)
+                        Text(
+                          'Amount: KSh ${_calculatedFare.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: outdoorOrange,
+                          ),
+                        ),
+                      if (cardUid != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            'Card UID: $cardUid',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  _getPaymentHelperText(),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: _getPaymentHelperTextColor(),
+                    fontWeight:
+                        _isPaymentComplete()
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                  ),
+                ),
+              ],
+            ),
+            actions: _buildDialogActions(),
+          ),
+    );
+  }
+
+  IconData _getPaymentIcon() {
+    if (isProcessingPayment) return Icons.credit_card_outlined;
+    if (isScanning) return Icons.nfc;
+    if (cardUid != null) return Icons.check_circle;
+    return Icons.tap_and_play;
+  }
+
+  Color _getPaymentIconColor() {
+    if (cardUid != null) return Colors.green;
+    return outdoorOrange;
+  }
+
+  String _getPaymentStatusText() {
+    if (isProcessingPayment) return 'Processing payment...';
+    if (isScanning) return 'Scanning for card...';
+    if (cardUid != null) return 'Payment successful!';
+    return 'Tap your KAPS card to process payment';
+  }
+
+  String _getPaymentHelperText() {
+    if (cardUid != null)
+      return 'Payment completed successfully. Receipt printed.';
+    if (isScanning) return 'Hold your card steady near the device';
+    return 'Make sure your card is enabled for contactless payments';
+  }
+
+  Color _getPaymentHelperTextColor() {
+    if (cardUid != null) return Colors.green;
+    return Colors.grey;
+  }
+
+  bool _isPaymentComplete() {
+    return cardUid != null && !isProcessingPayment;
+  }
+
+  List<Widget> _buildDialogActions() {
+    if (_isPaymentComplete()) {
+      return [
+        ElevatedButton(
+          onPressed: () {
+            Navigator.pop(context);
+            _resetPaymentState();
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.green,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('Done', style: TextStyle(fontSize: 16)),
+        ),
+      ];
+    }
+
+    return [
+      TextButton(
+        onPressed: () {
+          Navigator.pop(context);
+          _cancelPayment();
+        },
+        child: const Text('Cancel', style: TextStyle(fontSize: 16)),
+      ),
+      ElevatedButton(
+        onPressed: (isScanning || isProcessingPayment) ? null : _restartPayment,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: outdoorOrange,
+          foregroundColor: Colors.white,
+        ),
+        child: Text(
+          _getActionButtonText(),
+          style: const TextStyle(fontSize: 16),
+        ),
+      ),
+    ];
+  }
+
+  String _getActionButtonText() {
+    if (isProcessingPayment) return 'Processing...';
+    if (isScanning) return 'Scanning...';
+    return 'Start Payment';
+  }
+
+  void _restartPayment() async {
+    _resetPaymentState();
+    await _startCardPayment();
+  }
+
+  void _cancelPayment() async {
+    await NfcManager.instance.stopSession();
+    _resetPaymentState();
+  }
+
+  void _resetPaymentState() {
+    setState(() {
+      cardUid = null;
+      isScanning = false;
+      isProcessingPayment = false;
+    });
+  }
+
+  // Updated custom card display widget
   Widget _buildCustomCardDisplay() {
     return GestureDetector(
-      onTap: _showCardPaymentAlert,
+      onTap: _showCardPaymentDialog,
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(22),
@@ -814,7 +1254,7 @@ class _ToutHomePageState extends State<ToutHomePage> {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: const Text(
-                'Tap card to process payment',
+                'Tap to process payment',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.white,
@@ -829,145 +1269,6 @@ class _ToutHomePageState extends State<ToutHomePage> {
     );
   }
 
-  Widget _buildProcessButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 60,
-      child: ElevatedButton(
-        onPressed: _isProcessingPayment ? null : _processBooking,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: primaryBlue,
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        child:
-            _isProcessingPayment
-                ? const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
-                    ),
-                    SizedBox(width: 12),
-                    Text('Processing Payment...', style: TextStyle(fontSize: 16)),
-                  ],
-                )
-                : const Text(
-                  'Process Payment',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-      ),
-    );
-  }
-
-  void _swapLocations() {
-    setState(() {
-      final temp = _selectedFrom;
-      _selectedFrom = _selectedTo;
-      _selectedTo = temp;
-    });
-    _calculateFare();
-  }
-
-  void _showCardPaymentAlert() {
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            title: Row(
-              children: [
-                Image.asset(
-                  'assets/images/kaps.png',
-                  width: 42,
-                  height: 27,
-                  errorBuilder:
-                      (_, __, ___) => const Icon(
-                        Icons.credit_card,
-                        color: outdoorOrange,
-                        size: 32,
-                      ),
-                ),
-                const SizedBox(width: 12),
-                const Text('KAPS Card Payment', style: TextStyle(fontSize: 18)),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: outdoorOrange.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    children: [
-                      const Icon(
-                        Icons.tap_and_play,
-                        size: 54,
-                        color: outdoorOrange,
-                      ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Tap your KAPS card to process payment',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      if (_calculatedFare > 0)
-                        Text(
-                          'Amount: KSh ${_calculatedFare.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: outdoorOrange,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Make sure your card is enabled for contactless payments',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 13, color: Colors.grey),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel', style: TextStyle(fontSize: 16)),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _processBooking();
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: outdoorOrange,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('Process Payment', style: TextStyle(fontSize: 16)),
-              ),
-            ],
-          ),
-    );
-  }
-
   Future<void> _processBooking() async {
     if (!_formKey.currentState!.validate()) return;
     if (_calculatedFare <= 0) {
@@ -978,16 +1279,19 @@ class _ToutHomePageState extends State<ToutHomePage> {
     // Prepare receipt data for printing
     final receiptData = {
       "storeName": "Bus Service",
-      "receiptType": _selectedPaymentMethod == "M-Pesa" ? "Sale Receipt" : "Card Receipt",
+      "receiptType":
+          _selectedPaymentMethod == "M-Pesa" ? "Sale Receipt" : "Card Receipt",
       "date": DateTime.now().toString().split(' ')[0],
       "time": TimeOfDay.now().format(context),
       "orderNumber": "TXN${DateTime.now().millisecondsSinceEpoch}",
       "items": [
-      {
-        "name": "${_selectedFrom ?? ''} - ${_selectedTo ?? ''}",
-        "quantity": _passengersController.text,
-        "price": (_calculatedFare / (int.tryParse(_passengersController.text) ?? 1)).toStringAsFixed(2),
-      }
+        {
+          "name": "${_selectedFrom ?? ''} - ${_selectedTo ?? ''}",
+          "quantity": _passengersController.text,
+          "price": (_calculatedFare /
+                  (int.tryParse(_passengersController.text) ?? 1))
+              .toStringAsFixed(2),
+        },
       ],
       "subtotal": (_calculatedFare).toStringAsFixed(2),
       "tax": "0.00",
@@ -995,7 +1299,6 @@ class _ToutHomePageState extends State<ToutHomePage> {
       "paymentMethod": _selectedPaymentMethod,
     };
     await _plugin.printReceipt(receiptData);
-
 
     if (_selectedFrom == _selectedTo) {
       _showSnackBar(
@@ -1057,7 +1360,10 @@ class _ToutHomePageState extends State<ToutHomePage> {
               children: [
                 const Icon(Icons.check_circle, color: Colors.green, size: 30),
                 const SizedBox(width: 8),
-                const Text('Payment Successful', style: TextStyle(fontSize: 18)),
+                const Text(
+                  'Payment Successful',
+                  style: TextStyle(fontSize: 18),
+                ),
               ],
             ),
             content: SingleChildScrollView(
