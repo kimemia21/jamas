@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:jamas/auth/UserLogin.dart';
 import 'package:jamas/features/user/UserHomepage.dart';
 
 class RegistrationPage extends StatefulWidget {
@@ -550,7 +551,7 @@ class _RegistrationPageState extends State<RegistrationPage>
           style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
         ),
         GestureDetector(
-          onTap: () => Navigator.pop(context),
+          onTap: () =>Navigator.push(context, MaterialPageRoute(builder: (context)=>LoginPage())),
           child: const Text(
             'Sign In',
             style: TextStyle(
@@ -565,7 +566,7 @@ class _RegistrationPageState extends State<RegistrationPage>
   }
 
   void _handleSubmit() async {
-     if (!_formKey.currentState!.validate()) return;
+    //  if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
 

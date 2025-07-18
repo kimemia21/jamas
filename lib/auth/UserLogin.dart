@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:jamas/auth/Signup.dart';
+import 'package:jamas/auth/ToutLogin.dart';
 import 'package:jamas/features/user/UserHomepage.dart';
 import 'package:jamas/routing/Navigator.dart';
 
@@ -137,6 +138,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           ),
         ),
         const SizedBox(height: 8),
+
+
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
@@ -144,13 +147,16 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             borderRadius: BorderRadius.circular(20),
             border: Border.all(color: Colors.white.withOpacity(0.2)),
           ),
-          child: const Text(
-            'Welcome Back',
+          child: TextButton(
+          
+          onPressed: ()=>Navigator.push(context, MaterialPageRoute(builder: (context)=>Toutlogin())),
+          child: Text(  'Switch tout',
             style: TextStyle(
               color: Colors.white,
               fontSize: 14,
               fontWeight: FontWeight.w500,
-            ),
+            ),)
+          
           ),
         ),
       ],
@@ -398,7 +404,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   }
 
   void _handleLogin() async {
-    if (!_formKey.currentState!.validate()) return;
+    // if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
 

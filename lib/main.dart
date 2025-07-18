@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:jamas/auth/Signup.dart';
+import 'package:jamas/auth/ToutLogin.dart';
+import 'package:jamas/auth/UserLogin.dart';
 import 'package:jamas/features/tout/ToutHomepage.dart';
 import 'package:nfc_manager/nfc_manager.dart';
 
@@ -15,13 +18,15 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'Jamas App',
       theme: ThemeData(primarySwatch: Colors.blue),
-      home:
+      home:  LoginPage()
+      // Toutlogin()
           // Toutlogin()
           //  LoginPage()
-          // RegistrationPage()
-          ToutHomePage(),
+          //  RegistrationPage()
+          // ToutHomePage(),
     );
   }
 }
